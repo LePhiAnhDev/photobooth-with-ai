@@ -1,0 +1,96 @@
+#root {
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+}
+
+/* Custom scrollbar for thumbnails */
+.space-y-3::-webkit-scrollbar {
+    width: 6px;
+}
+
+.space-y-3::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 3px;
+}
+
+.space-y-3::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.space-y-3::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Smooth transitions for all interactive elements */
+button {
+    transition: all 0.2s ease-in-out;
+}
+
+/* Custom focus styles */
+button:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* Ensure video element fills container properly */
+video {
+    object-fit: cover;
+}
+
+/* Custom animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.5s ease-out;
+}
+
+/* Grid background animation */
+@keyframes gridMove {
+    0% {
+        transform: translate(0, 0);
+    }
+
+    100% {
+        transform: translate(50px, 50px);
+    }
+}
+
+.animate-grid {
+    animation: gridMove 20s linear infinite;
+}
+
+/* Countdown animation */
+@keyframes countdownPulse {
+    0% {
+        transform: scale(1);
+        text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+    }
+
+    50% {
+        transform: scale(1.05);
+        text-shadow: 0 0 15px rgba(255, 255, 255, 0.7);
+    }
+
+    100% {
+        transform: scale(1);
+        text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+    }
+}
+
+.countdown-number {
+    animation: countdownPulse 1.2s ease-in-out infinite;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
