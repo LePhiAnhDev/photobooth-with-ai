@@ -32,8 +32,8 @@ class HandGestureRecognizer:
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=1,  # Chỉ nhận diện 1 tay
-            min_detection_confidence=0.6,  # Giảm để tăng tốc độ
-            min_tracking_confidence=0.4   # Giảm để tăng tốc độ
+            min_detection_confidence=0.8,  # ✅ Tăng confidence để chính xác hơn
+            min_tracking_confidence=0.7   # ✅ Tăng confidence để chính xác hơn
         )
         
         # Các biến điều khiển
@@ -49,10 +49,16 @@ class HandGestureRecognizer:
         self.max_photos = 6
         self.countdown = 0
         self.last_ok_detection = 0
-        self.ok_cooldown = 2.0  # 2 giây cooldown cho OK sign
+        self.ok_cooldown = 1.0  # ✅ Giảm cooldown xuống 1 giây để dễ test
         self.last_countdown_update = 0
         self.countdown_interval = 1.0  # 1 giây giữa các countdown
         self.requires_ok_continuous = False  # Không yêu cầu OK sign liên tục
+        
+        # ✅ THÊM: Biến để đếm số lần Peace sign liên tục
+        self.peace_sign_count = 0
+        self.required_peace_count = 3  # Cần 3 frame liên tục để tránh false positive
+        self.last_gesture = 'unknown'
+        self.gesture_stability_count = 0  # Đếm số frame ổn định của gesture
         
         # Tạo thư mục lưu ảnh nếu chưa có
         if not os.path.exists('captured_images'):
@@ -65,11 +71,25 @@ class HandGestureRecognizer:
     def is_finger_up(self, landmarks, tip_id, pip_id):
         """Kiểm tra ngón tay có duỗi thẳng không"""
         return landmarks[tip_id].y < landmarks[pip_id].y
+    
+    def is_thumb_up(self, landmarks):
+        """Kiểm tra ngón cái có duỗi thẳng không (xử lý riêng cho ngón cái)"""
+        thumb_tip = 4
+        thumb_ip = 3
+        thumb_mcp = 2
+        
+        # Kiểm tra theo hướng của tay (trái/phải)
+        # Ngón cái duỗi khi tip xa hơn so với các khớp khác
+        horizontal_extended = abs(landmarks[thumb_tip].x - landmarks[thumb_mcp].x) > abs(landmarks[thumb_ip].x - landmarks[thumb_mcp].x)
+        vertical_extended = landmarks[thumb_tip].y < landmarks[thumb_ip].y
+        
+        # Kết hợp cả 2 tiêu chí để chính xác hơn
+        return horizontal_extended and vertical_extended
 
     def recognize_gesture(self, landmarks):
         """
         Nhận diện cử chỉ tay dựa trên landmarks
-        Returns: 'fist', 'open', 'ok', hoặc 'unknown'
+        Returns: 'fist', 'open', 'peace', hoặc 'unknown'
         """
         # Các chỉ số landmark quan trọng
         thumb_tip = 4
@@ -86,25 +106,36 @@ class HandGestureRecognizer:
         # Kiểm tra các ngón tay có duỗi thẳng không
         fingers_up = []
         
-        # Ngón cái (kiểm tra theo chiều ngang)
-        if landmarks[thumb_tip].x > landmarks[thumb_ip].x:  # Tay phải
-            fingers_up.append(landmarks[thumb_tip].x > landmarks[thumb_ip].x)
-        else:  # Tay trái
-            fingers_up.append(landmarks[thumb_tip].x < landmarks[thumb_ip].x)
+        # ✅ Ngón cái - sử dụng logic cải tiến
+        fingers_up.append(self.is_thumb_up(landmarks))
         
-        # 4 ngón còn lại
+        # ✅ 4 ngón còn lại - sử dụng logic chuẩn
         for tip, pip in [(index_tip, index_pip), (middle_tip, middle_pip), 
                         (ring_tip, ring_pip), (pinky_tip, pinky_pip)]:
             fingers_up.append(self.is_finger_up(landmarks, tip, pip))
 
         fingers_up_count = fingers_up.count(True)
 
-        # Nhận diện cử chỉ OK: ngón cái và ngón trỏ chạm nhau, các ngón khác duỗi
-        thumb_index_distance = self.calculate_distance(landmarks[thumb_tip], landmarks[index_tip])
+        # Loại bỏ debug log để tăng performance
         
-        if thumb_index_distance < 0.05:  # Ngón cái và trỏ gần nhau
-            if fingers_up[2] and fingers_up[3] and fingers_up[4]:  # 3 ngón còn lại duỗi
-                return 'ok'
+        # ✅ PEACE SIGN CHÍNH XÁC: Dấu ✌🏻 (peace sign)
+        # Có thể có 2 hoặc 3 ngón duỗi (ngón cái có thể duỗi hoặc không)
+        peace_condition_1 = (fingers_up_count == 2 and 
+                            not fingers_up[0] and  # Ngón cái cụp
+                            fingers_up[1] and      # Ngón trỏ duỗi  
+                            fingers_up[2] and      # Ngón giữa duỗi
+                            not fingers_up[3] and  # Ngón áp út cụp
+                            not fingers_up[4])     # Ngón út cụp
+        
+        peace_condition_2 = (fingers_up_count == 3 and 
+                            fingers_up[0] and      # Ngón cái duỗi (có thể)
+                            fingers_up[1] and      # Ngón trỏ duỗi
+                            fingers_up[2] and      # Ngón giữa duỗi
+                            not fingers_up[3] and  # Ngón áp út cụp
+                            not fingers_up[4])     # Ngón út cụp
+        
+        if peace_condition_1 or peace_condition_2:
+            return 'peace'
 
         # Nhận diện nắm tay: tất cả ngón tay cụp lại
         if fingers_up_count <= 1:
@@ -156,85 +187,52 @@ class HandGestureRecognizer:
         }
         
         self.captured_photos.append(photo_data)
-        print(f"📸 Đã chụp ảnh: {filename} ({len(self.captured_photos)}/{self.max_photos})")
         return True
 
     def process_frame(self, frame):
-        """Xử lý frame và trả về thông tin cần thiết (tối ưu tốc độ)"""
+        """Xử lý frame và trả về thông tin cần thiết - CLEAN VERSION"""
         # Lật frame theo chiều ngang để có cảm giác như nhìn gương
         frame = cv2.flip(frame, 1)
-        h, w, c = frame.shape
         
         # Resize frame để tăng tốc độ xử lý
         small_frame = cv2.resize(frame, (320, 240))
-        
-        # Chuyển đổi BGR sang RGB cho MediaPipe
         rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
         
         # Xử lý nhận diện tay
         results = self.hands.process(rgb_frame)
-        
         gesture = 'unknown'
         current_time = time.time()
         
+        # Xử lý khi có tay được phát hiện
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
-                # Nhận diện cử chỉ
                 gesture = self.recognize_gesture(hand_landmarks.landmark)
                 
-                # Xử lý các hành động dựa trên cử chỉ
+                # Xử lý các gesture
                 if gesture == 'fist':
-                    # Zoom out
                     if self.zoom_level > self.min_zoom:
                         self.zoom_level = max(self.min_zoom, self.zoom_level - self.zoom_step)
-                
+                        
                 elif gesture == 'open':
-                    # Zoom in
                     if self.zoom_level < self.max_zoom:
                         self.zoom_level = min(self.max_zoom, self.zoom_level + self.zoom_step)
+                        
+                elif gesture == 'peace':
+                    self._handle_peace_sign(current_time)
                 
-                elif gesture == 'ok':
-                    # OK sign - chuyển mode ON và bắt đầu chụp ảnh (chỉ cần 1 lần)
-                    if current_time - self.last_ok_detection > self.ok_cooldown:
-                        self.last_ok_detection = current_time
-                        if self.mode == "OFF" and not self.is_capturing:
-                            self.mode = "ON"
-                            self.is_capturing = True
-                            self.countdown = 5  # 5 giây countdown
-                            self.last_countdown_update = current_time
-                            print("🔄 Chuyển Mode: ON - Bắt đầu countdown...")
+                # Reset counters cho các gesture khác
+                if gesture != 'peace' and gesture != self.last_gesture:
+                    self.peace_sign_count = 0
+                    self.gesture_stability_count = 0
         
-        # Xử lý countdown và chụp ảnh với timer chính xác
-        if self.is_capturing and self.countdown > 0:
-            # Chỉ giảm countdown mỗi giây, không phải mỗi frame
-            if current_time - self.last_countdown_update >= self.countdown_interval:
-                self.countdown -= 1
-                self.last_countdown_update = current_time
-                print(f"⏰ Countdown: {self.countdown}")
-                
-                if self.countdown == 0:
-                    if self.capture_image(frame):
-                        if len(self.captured_photos) < self.max_photos:
-                            self.countdown = 5  # Tiếp tục countdown 5 giây cho ảnh tiếp theo
-                            self.last_countdown_update = current_time
-                            print(f"📸 Chụp ảnh {len(self.captured_photos)}/{self.max_photos} - Tiếp tục countdown...")
-                        else:
-                            self.is_capturing = False
-                            self.mode = "OFF"
-                            self.countdown = 0
-                            print("✅ Hoàn thành chụp 6 ảnh - Chuyển Mode: OFF")
-                    else:
-                        self.is_capturing = False
-                        self.mode = "OFF"
-                        self.countdown = 0
-                        print("❌ Lỗi chụp ảnh - Chuyển Mode: OFF")
+        # Cập nhật last_gesture
+        self.last_gesture = gesture
         
-        # Không cần kiểm tra OK sign timeout vì không yêu cầu liên tục
+        # Xử lý countdown và chụp ảnh
+        self._handle_countdown_and_capture(current_time, frame)
         
-        # Áp dụng zoom
+        # Áp dụng zoom và chuẩn bị output
         display_frame = self.apply_zoom(frame)
-        
-        # Encode frame để gửi qua WebSocket (giữ chất lượng cao)
         _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
         frame_base64 = base64.b64encode(buffer).decode('utf-8')
         
@@ -246,8 +244,58 @@ class HandGestureRecognizer:
             'is_capturing': self.is_capturing,
             'countdown': self.countdown,
             'captured_photos': self.captured_photos,
-            'photos_count': len(self.captured_photos)
+            'photos_count': len(self.captured_photos),
+            'peace_sign_count': self.peace_sign_count,
+            'required_peace_count': self.required_peace_count,
+            'gesture_stability_count': self.gesture_stability_count,
+            'gesture_stability_required': self.required_peace_count
         }
+    
+    def _handle_peace_sign(self, current_time):
+        """Xử lý logic Peace Sign - CLEAN VERSION"""
+        # Đếm stability
+        if self.last_gesture == 'peace':
+            self.gesture_stability_count += 1
+        else:
+            self.gesture_stability_count = 1
+        
+        # Kích hoạt khi đủ điều kiện
+        if (self.gesture_stability_count >= self.required_peace_count and 
+            current_time - self.last_ok_detection > self.ok_cooldown and
+            self.mode == "OFF" and not self.is_capturing):
+            
+            self.last_ok_detection = current_time
+            self.mode = "ON"
+            self.is_capturing = True
+            self.countdown = 5
+            self.last_countdown_update = current_time
+            self.peace_sign_count = 0
+            self.gesture_stability_count = 0
+    
+    def _handle_countdown_and_capture(self, current_time, frame):
+        """Xử lý countdown và chụp ảnh"""
+        if self.is_capturing and self.countdown > 0:
+            if current_time - self.last_countdown_update >= self.countdown_interval:
+                self.countdown -= 1
+                self.last_countdown_update = current_time
+                
+                if self.countdown == 0:
+                    if self.capture_image(frame):
+                        if len(self.captured_photos) < self.max_photos:
+                            self.countdown = 5
+                            self.last_countdown_update = current_time
+                        else:
+                            self._reset_capture_mode()
+                    else:
+                        self._reset_capture_mode()
+    
+    def _reset_capture_mode(self):
+        """Reset capture mode về OFF"""
+        self.is_capturing = False
+        self.mode = "OFF"
+        self.countdown = 0
+        self.peace_sign_count = 0
+        self.gesture_stability_count = 0
 
 # Khởi tạo recognizer
 recognizer = HandGestureRecognizer()
@@ -279,7 +327,6 @@ manager = ConnectionManager()
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
-    print("🔌 Client connected to WebSocket")
     
     # Khởi tạo camera với settings cân bằng chất lượng và tốc độ
     cap = cv2.VideoCapture(0)
@@ -307,10 +354,8 @@ async def websocket_endpoint(websocket: WebSocket):
             # Delay nhỏ để tránh quá tải (FPS ổn định)
             await asyncio.sleep(0.033)  # ~30 FPS
             
-    except WebSocketDisconnect:
-        print("🔌 Client disconnected from WebSocket")
-    except Exception as e:
-        print(f"❌ WebSocket error: {e}")
+    except (WebSocketDisconnect, Exception):
+        pass
     finally:
         cap.release()
         manager.disconnect(websocket)
@@ -325,12 +370,10 @@ async def toggle_mode():
         recognizer.is_capturing = True
         recognizer.countdown = 5
         recognizer.last_countdown_update = current_time
-        print("🔄 Mode switched to ON - Manual toggle")
     elif recognizer.mode == "ON" or recognizer.is_capturing:
         recognizer.mode = "OFF"
         recognizer.is_capturing = False
         recognizer.countdown = 0
-        print("🔄 Mode switched to OFF - Manual toggle")
     
     return {
         "mode": recognizer.mode,
@@ -359,7 +402,9 @@ async def reset_photos():
     recognizer.countdown = 0
     recognizer.last_ok_detection = 0
     recognizer.last_countdown_update = 0
-    print("🔄 Reset photos and mode")
+    recognizer.peace_sign_count = 0
+    recognizer.last_gesture = 'unknown'
+    recognizer.gesture_stability_count = 0
     return {"message": "Reset successful"}
 
 @app.get("/")
@@ -367,13 +412,4 @@ async def root():
     return {"message": "Photobooth AI Backend is running!"}
 
 if __name__ == "__main__":
-    print("🚀 Starting Photobooth AI Backend...")
-    print("📋 Features:")
-    print("   👊 Fist → Zoom Out (1x-3x)")
-    print("   ✋ Open Hand → Zoom In (1x-3x)")
-    print("   👌 OK Sign → Auto Mode ON + Capture 6 photos")
-    print("   🔄 Mode Toggle: OFF (gesture only) / ON (capture mode)")
-    print("🌐 WebSocket: ws://localhost:8000/ws")
-    print("🌐 API: http://localhost:8000")
-    
     uvicorn.run(app, host="0.0.0.0", port=8000)

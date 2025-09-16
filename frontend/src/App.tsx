@@ -16,6 +16,10 @@ interface WebSocketData {
     countdown: number
     captured_photos: Photo[]
     photos_count: number
+    peace_sign_count?: number  // ✅ Thêm Peace sign counter
+    required_peace_count?: number  // ✅ Thêm số lần Peace cần thiết
+    gesture_stability_count?: number  // ✅ Thêm gesture stability counter
+    gesture_stability_required?: number  // ✅ Thêm số frame stability cần thiết
 }
 
 type AppState = 'capturing' | 'selecting' | 'composing' | 'result'
@@ -34,6 +38,10 @@ function App() {
     const [zoomLevel, setZoomLevel] = useState(1.0)
     const [currentGesture, setCurrentGesture] = useState('unknown')
     const [wsData, setWsData] = useState<WebSocketData | null>(null)
+    const [peaceSignCount, setPeaceSignCount] = useState(0)  // ✅ Thêm Peace sign counter state
+    const [requiredPeaceCount, setRequiredPeaceCount] = useState(1)  // ✅ Thêm required Peace count state
+    const [gestureStabilityCount, setGestureStabilityCount] = useState(0)  // ✅ Thêm gesture stability state
+    const [gestureStabilityRequired, setGestureStabilityRequired] = useState(3)  // ✅ Thêm required stability state
 
     const videoRef = useRef<HTMLVideoElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -61,6 +69,10 @@ function App() {
                         setCountdown(data.countdown)
                         setIsCapturing(data.is_capturing)
                         setPhotos(data.captured_photos)
+                        setPeaceSignCount(data.peace_sign_count || 0)  // ✅ Cập nhật Peace sign counter
+                        setRequiredPeaceCount(data.required_peace_count || 1)  // ✅ Cập nhật required Peace count
+                        setGestureStabilityCount(data.gesture_stability_count || 0)  // ✅ Cập nhật gesture stability
+                        setGestureStabilityRequired(data.gesture_stability_required || 3)  // ✅ Cập nhật required stability
 
                         // Auto proceed to selection after 6 photos
                         if (data.photos_count >= 6 && appState === 'capturing') {
@@ -131,6 +143,8 @@ function App() {
             setMode('OFF')
             setIsCapturing(false)
             setCountdown(0)
+            setPeaceSignCount(0)  // ✅ Reset Peace sign counter
+            setGestureStabilityCount(0)  // ✅ Reset gesture stability
         } catch (error) {
             console.error('Error resetting photos:', error)
         }
@@ -236,7 +250,7 @@ function App() {
             <div className="relative z-10 container mx-auto px-4 py-8">
                 <div className="text-center mb-8">
                     <h1 className="text-4xl font-bold text-slate-800 mb-2">Photobooth with AI</h1>
-                    <p className="text-slate-600">Hand gesture control - 👊 Zoom Out | ✋ Zoom In | 👌 OK Sign to Capture</p>
+                    <p className="text-slate-600">Hand gesture control - 👊 Zoom Out | ✋ Zoom In | ✌🏻 Peace Sign (2 fingers) to Capture</p>
                 </div>
 
                 <div className="flex gap-8 max-w-7xl mx-auto">
@@ -271,6 +285,26 @@ function App() {
                                     <div>Mode: <span className={`font-bold ${mode === 'ON' ? 'text-green-400' : 'text-red-400'}`}>{mode}</span></div>
                                     <div>Zoom: <span className="font-bold text-blue-400">{zoomLevel}x</span></div>
                                     <div>Gesture: <span className="font-bold text-yellow-400">{currentGesture}</span></div>
+                                    {/* ✅ Thêm hiển thị Peace sign progress với gesture stability */}
+                                    {currentGesture === 'peace' && mode === 'OFF' && (
+                                        <div className="mt-2">
+                                            <div className="text-xs text-gray-300">Peace Sign Stability:</div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-24 bg-gray-600 rounded-full h-2">
+                                                    <div
+                                                        className="bg-yellow-400 h-2 rounded-full transition-all duration-200"
+                                                        style={{ width: `${(gestureStabilityCount / gestureStabilityRequired) * 100}%` }}
+                                                    ></div>
+                                                </div>
+                                                <span className="text-xs font-bold text-yellow-400">
+                                                    {gestureStabilityCount}/{gestureStabilityRequired}
+                                                </span>
+                                            </div>
+                                            {gestureStabilityCount >= gestureStabilityRequired && (
+                                                <div className="text-xs text-green-400 mt-1">✅ Ready to activate!</div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
