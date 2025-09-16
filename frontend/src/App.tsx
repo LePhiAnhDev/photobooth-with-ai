@@ -32,6 +32,7 @@ function App() {
     const [isCapturing, setIsCapturing] = useState(false)
     const [finalResult, setFinalResult] = useState<string | null>(null)
     const [appliedFilter, setAppliedFilter] = useState<string | null>(null)
+    const [isComposing, setIsComposing] = useState(false)
 
     // New state for AI integration
     const [mode, setMode] = useState<'ON' | 'OFF'>('OFF')
@@ -145,6 +146,7 @@ function App() {
             setCountdown(0)
             setPeaceSignCount(0)  // ✅ Reset Peace sign counter
             setGestureStabilityCount(0)  // ✅ Reset gesture stability
+            setIsComposing(false)  // ✅ Reset composing state
         } catch (error) {
             console.error('Error resetting photos:', error)
         }
@@ -164,7 +166,11 @@ function App() {
     const confirmSelection = () => {
         if (selectedPhotos.length === 3) {
             setAppState('composing')
-            composePhotos()
+            setIsComposing(true)
+            // Use setTimeout to ensure state update is processed before composePhotos
+            setTimeout(() => {
+                composePhotos()
+            }, 0)
         }
     }
 
@@ -219,12 +225,11 @@ function App() {
                         // Draw the frame on top (this will only show non-transparent parts)
                         ctx.drawImage(frameImg, 0, 0)
 
-                        // Convert to data URL
-                        setTimeout(() => {
-                            const resultDataUrl = canvas.toDataURL('image/jpeg', 0.9)
-                            setFinalResult(resultDataUrl)
-                            setAppState('result')
-                        }, 100)
+                        // Convert to data URL and update state
+                        const resultDataUrl = canvas.toDataURL('image/jpeg', 0.9)
+                        setFinalResult(resultDataUrl)
+                        setIsComposing(false)
+                        setAppState('result')
                     }
                 }
                 img.src = photo.dataUrl
@@ -253,6 +258,7 @@ function App() {
         setAppState('capturing')
         setFinalResult(null)
         setAppliedFilter(null)
+        setIsComposing(false)
     }
 
     const renderCapturing = () => (
@@ -419,6 +425,23 @@ function App() {
         </div>
     )
 
+    const renderComposing = () => (
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 relative overflow-hidden">
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(59,130,246,0.1)_1px,transparent_1px),linear-gradient(90deg,rgba(59,130,246,0.1)_1px,transparent_1px)] bg-[size:50px_50px]"></div>
+
+            <div className="relative z-10 container mx-auto px-4 py-8">
+                <div className="text-center">
+                    <h1 className="text-4xl font-bold text-slate-800 mb-2">Composing Your Photos</h1>
+                    <p className="text-slate-600 mb-8">Please wait while we create your photobooth result...</p>
+
+                    <div className="flex justify-center">
+                        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+
     const renderResult = () => (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 relative overflow-hidden">
             <div className="absolute inset-0 bg-[linear-gradient(rgba(59,130,246,0.1)_1px,transparent_1px),linear-gradient(90deg,rgba(59,130,246,0.1)_1px,transparent_1px)] bg-[size:50px_50px]"></div>
@@ -435,13 +458,12 @@ function App() {
                             <img
                                 src={finalResult}
                                 alt="Photobooth Result"
-                                className={`w-full max-w-lg mx-auto rounded-2xl shadow-2xl ${appliedFilter === 'white' ? 'brightness-110 contrast-105' :
+                                className={`w-full max-w-lg mx-auto rounded-2xl shadow-2xl object-contain ${appliedFilter === 'white' ? 'brightness-110 contrast-105' :
                                     appliedFilter === 'pink' ? 'sepia-20 saturate-150 hue-rotate-320' :
                                         appliedFilter === 'black' ? 'brightness-70 contrast-120 saturate-80' :
                                             appliedFilter === 'yellow' ? 'sepia-40 saturate-150 hue-rotate-30 brightness-105' :
                                                 ''
                                     }`}
-                                style={{ aspectRatio: '9/6' }}
                             />
                         </div>
                     )}
@@ -518,6 +540,8 @@ function App() {
     switch (appState) {
         case 'selecting':
             return renderSelecting()
+        case 'composing':
+            return renderComposing()
         case 'result':
             return renderResult()
         default:
