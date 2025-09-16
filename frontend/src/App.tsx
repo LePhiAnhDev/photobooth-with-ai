@@ -173,53 +173,66 @@ function App() {
             photos.find(photo => photo.id === id)
         ).filter(Boolean) as Photo[]
 
-        // Create composition canvas
-        const canvas = document.createElement('canvas')
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return
+        // Load the frame image first
+        const frameImg = new Image()
+        frameImg.onload = () => {
+            // Create composition canvas with frame dimensions
+            const canvas = document.createElement('canvas')
+            const ctx = canvas.getContext('2d')
+            if (!ctx) return
 
-        // Set canvas size for vertical composition
-        const photoWidth = 450
-        const photoHeight = 350
-        const spacing = 10
-        const framePadding = 30
+            // Set canvas size to match frame image
+            canvas.width = frameImg.width
+            canvas.height = frameImg.height
 
-        canvas.width = photoWidth + framePadding * 2
-        canvas.height = (photoHeight + spacing) * 3 + framePadding * 2 - spacing
+            // Calculate photo dimensions based on frame
+            const frameWidth = frameImg.width
+            const frameHeight = frameImg.height
+            const slotHeight = Math.floor(frameHeight / 3) // Divide frame into 3 equal vertical slots
+            const slotWidth = Math.floor(frameWidth * 0.95) // Use 95% of frame width for photos to fill more space
+            const slotX = Math.floor((frameWidth - slotWidth) / 2) // Center horizontally
 
-        // Draw very light ocean blue gradient background frame
-        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
-        gradient.addColorStop(0, '#bfdbfe')
-        gradient.addColorStop(0.5, '#93c5fd')
-        gradient.addColorStop(1, '#60a5fa')
+            // Draw photos first (behind the frame)
+            let photosLoaded = 0
+            const totalPhotos = selectedPhotoData.length
 
-        ctx.fillStyle = gradient
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
+            selectedPhotoData.forEach((photo, index) => {
+                const img = new Image()
+                img.onload = () => {
+                    const y = index * slotHeight
 
-        // Draw photos
-        selectedPhotoData.forEach((photo, index) => {
-            const img = new Image()
-            img.onload = () => {
-                const x = framePadding
-                const y = framePadding + index * (photoHeight + spacing)
+                    // Force photo to fill the entire slot width to eliminate side borders
+                    // This will crop top/bottom if needed but ensures no side borders
+                    const drawX = slotX
+                    const drawY = y
+                    const drawWidth = slotWidth
+                    const drawHeight = slotHeight
 
-                // Draw photo with rounded corners
-                ctx.save()
-                ctx.beginPath()
-                ctx.roundRect(x, y, photoWidth, photoHeight, 15)
-                ctx.clip()
-                ctx.drawImage(img, x, y, photoWidth, photoHeight)
-                ctx.restore()
-            }
-            img.src = photo.dataUrl
-        })
+                    // Draw photo to completely fill the slot (no aspect ratio preservation)
+                    // This ensures no black borders on the sides
+                    ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
 
-        // Convert to data URL
-        setTimeout(() => {
-            const resultDataUrl = canvas.toDataURL('image/jpeg', 0.9)
-            setFinalResult(resultDataUrl)
-            setAppState('result')
-        }, 1000)
+                    photosLoaded++
+
+                    // When all photos are loaded, draw the frame on top
+                    if (photosLoaded === totalPhotos) {
+                        // Draw the frame on top (this will only show non-transparent parts)
+                        ctx.drawImage(frameImg, 0, 0)
+
+                        // Convert to data URL
+                        setTimeout(() => {
+                            const resultDataUrl = canvas.toDataURL('image/jpeg', 0.9)
+                            setFinalResult(resultDataUrl)
+                            setAppState('result')
+                        }, 100)
+                    }
+                }
+                img.src = photo.dataUrl
+            })
+        }
+
+        // Load the frame image
+        frameImg.src = '/frame.png'
     }
 
     const applyFilter = (filterType: string) => {
@@ -256,7 +269,7 @@ function App() {
                 <div className="flex gap-8 max-w-7xl mx-auto">
                     {/* Camera Section */}
                     <div className="flex-1">
-                        <div className="relative bg-white rounded-2xl shadow-2xl overflow-hidden" style={{ aspectRatio: '7/5' }}>
+                        <div className="relative bg-white rounded-2xl shadow-2xl overflow-hidden" style={{ aspectRatio: '9/6' }}>
                             {/* AI Camera Stream */}
                             {wsData?.frame ? (
                                 <img
@@ -336,6 +349,7 @@ function App() {
                                         src={photo.dataUrl}
                                         alt={`Photo ${index + 1}`}
                                         className="w-full h-36 object-cover rounded-lg shadow-md"
+                                        style={{ aspectRatio: '9/6' }}
                                     />
                                     <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
                                         {index + 1}
@@ -374,6 +388,7 @@ function App() {
                                     src={photo.dataUrl}
                                     alt={`Photo ${index + 1}`}
                                     className="w-full h-64 object-cover rounded-xl shadow-md"
+                                    style={{ aspectRatio: '9/6' }}
                                 />
                                 {selectedPhotos.includes(photo.id) && (
                                     <div className="absolute top-4 right-4 bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center font-bold">
@@ -420,12 +435,13 @@ function App() {
                             <img
                                 src={finalResult}
                                 alt="Photobooth Result"
-                                className={`w-full max-w-md mx-auto rounded-2xl shadow-2xl ${appliedFilter === 'white' ? 'brightness-110 contrast-105' :
+                                className={`w-full max-w-lg mx-auto rounded-2xl shadow-2xl ${appliedFilter === 'white' ? 'brightness-110 contrast-105' :
                                     appliedFilter === 'pink' ? 'sepia-20 saturate-150 hue-rotate-320' :
                                         appliedFilter === 'black' ? 'brightness-70 contrast-120 saturate-80' :
                                             appliedFilter === 'yellow' ? 'sepia-40 saturate-150 hue-rotate-30 brightness-105' :
                                                 ''
                                     }`}
+                                style={{ aspectRatio: '9/6' }}
                             />
                         </div>
                     )}

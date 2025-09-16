@@ -168,16 +168,31 @@ class HandGestureRecognizer:
         return zoomed
 
     def capture_image(self, frame):
-        """Chụp và lưu ảnh"""
+        """Chụp và lưu ảnh với tỷ lệ 9:6"""
         if len(self.captured_photos) >= self.max_photos:
             return False
             
+        # Crop frame to 9:6 aspect ratio
+        h, w = frame.shape[:2]
+        target_ratio = 9 / 6  # 1.5
+        
+        if w / h > target_ratio:
+            # Frame is too wide, crop width
+            new_width = int(h * target_ratio)
+            start_x = (w - new_width) // 2
+            cropped_frame = frame[:, start_x:start_x + new_width]
+        else:
+            # Frame is too tall, crop height
+            new_height = int(w / target_ratio)
+            start_y = (h - new_height) // 2
+            cropped_frame = frame[start_y:start_y + new_height, :]
+            
         timestamp = int(time.time() * 1000)
         filename = f'captured_images/capture_{timestamp}.jpg'
-        cv2.imwrite(filename, frame)
+        cv2.imwrite(filename, cropped_frame)
         
         # Encode ảnh thành base64 để gửi qua WebSocket (chất lượng cao)
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        _, buffer = cv2.imencode('.jpg', cropped_frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
         img_base64 = base64.b64encode(buffer).decode('utf-8')
         
         photo_data = {
@@ -330,8 +345,8 @@ async def websocket_endpoint(websocket: WebSocket):
     
     # Khởi tạo camera với settings cân bằng chất lượng và tốc độ
     cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # Độ phân giải cao cho chất lượng tốt
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)  # Độ phân giải cao cho chất lượng tốt
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1440)  # Độ phân giải cao cho chất lượng tốt (9:6 ratio)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 960)  # Độ phân giải cao cho chất lượng tốt (9:6 ratio)
     cap.set(cv2.CAP_PROP_FPS, 30)            # FPS ổn định
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)      # Giảm buffer để giảm delay
     
