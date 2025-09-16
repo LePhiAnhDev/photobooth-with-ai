@@ -7,6 +7,17 @@ interface Photo {
     timestamp: number
 }
 
+interface WebSocketData {
+    frame: string
+    gesture: string
+    zoom_level: number
+    mode: string
+    is_capturing: boolean
+    countdown: number
+    captured_photos: Photo[]
+    photos_count: number
+}
+
 type AppState = 'capturing' | 'selecting' | 'composing' | 'result'
 
 function App() {
@@ -18,78 +29,110 @@ function App() {
     const [finalResult, setFinalResult] = useState<string | null>(null)
     const [appliedFilter, setAppliedFilter] = useState<string | null>(null)
 
+    // New state for AI integration
+    const [mode, setMode] = useState<'ON' | 'OFF'>('OFF')
+    const [zoomLevel, setZoomLevel] = useState(1.0)
+    const [currentGesture, setCurrentGesture] = useState('unknown')
+    const [wsData, setWsData] = useState<WebSocketData | null>(null)
+
     const videoRef = useRef<HTMLVideoElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const streamRef = useRef<MediaStream | null>(null)
+    const wsRef = useRef<WebSocket | null>(null)
 
-    // Initialize camera
+    // Initialize WebSocket connection
     useEffect(() => {
-        const initCamera = async () => {
+        const connectWebSocket = () => {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: 1280, height: 720 }
-                })
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream
-                    streamRef.current = stream
+                const ws = new WebSocket('ws://localhost:8000/ws')
+                wsRef.current = ws
+
+                ws.onopen = () => {
+                    console.log('🔌 Connected to AI backend')
+                }
+
+                ws.onmessage = (event) => {
+                    try {
+                        const data: WebSocketData = JSON.parse(event.data)
+                        setWsData(data)
+                        setMode(data.mode as 'ON' | 'OFF')
+                        setZoomLevel(data.zoom_level)
+                        setCurrentGesture(data.gesture)
+                        setCountdown(data.countdown)
+                        setIsCapturing(data.is_capturing)
+                        setPhotos(data.captured_photos)
+
+                        // Auto proceed to selection after 6 photos
+                        if (data.photos_count >= 6 && appState === 'capturing') {
+                            setTimeout(() => setAppState('selecting'), 2000)
+                        }
+                    } catch (error) {
+                        console.error('Error parsing WebSocket data:', error)
+                    }
+                }
+
+                ws.onclose = () => {
+                    console.log('🔌 Disconnected from AI backend')
+                    // Reconnect after 3 seconds
+                    setTimeout(connectWebSocket, 3000)
+                }
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error)
                 }
             } catch (error) {
-                console.error('Error accessing camera:', error)
+                console.error('Error connecting to WebSocket:', error)
             }
         }
 
-        initCamera()
+        connectWebSocket()
 
         return () => {
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop())
+            if (wsRef.current) {
+                wsRef.current.close()
             }
         }
-    }, [])
+    }, [appState])
 
-    // Countdown and capture logic
-    useEffect(() => {
-        if (countdown > 0) {
-            const timer = setTimeout(() => setCountdown(countdown - 1), 1000)
-            return () => clearTimeout(timer)
-        } else if (countdown === 0 && isCapturing) {
-            capturePhoto()
+    const [isToggling, setIsToggling] = useState(false)
+
+    const toggleMode = async () => {
+        if (isToggling) return // Prevent multiple clicks
+
+        try {
+            setIsToggling(true)
+            const response = await fetch('http://localhost:8000/toggle_mode', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            })
+            const data = await response.json()
+            setMode(data.mode)
+            setIsCapturing(data.is_capturing)
+            setCountdown(data.countdown)
+        } catch (error) {
+            console.error('Error toggling mode:', error)
+        } finally {
+            setTimeout(() => setIsToggling(false), 1000)
         }
-    }, [countdown, isCapturing])
-
-    const startCapturing = () => {
-        if (photos.length >= 6) return
-
-        setIsCapturing(true)
-        setCountdown(5)
     }
 
-    const capturePhoto = () => {
-        if (!videoRef.current || !canvasRef.current) return
-
-        const canvas = canvasRef.current
-        const video = videoRef.current
-        const ctx = canvas.getContext('2d')
-
-        if (!ctx) return
-
-        canvas.width = video.videoWidth
-        canvas.height = video.videoHeight
-        ctx.drawImage(video, 0, 0)
-
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
-        const newPhoto: Photo = {
-            id: Date.now().toString(),
-            dataUrl,
-            timestamp: Date.now()
-        }
-
-        setPhotos(prev => [...prev, newPhoto])
-        setIsCapturing(false)
-
-        // Auto proceed to selection after 6 photos
-        if (photos.length + 1 >= 6) {
-            setTimeout(() => setAppState('selecting'), 1000)
+    const resetPhotos = async () => {
+        try {
+            await fetch('http://localhost:8000/reset', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            })
+            setPhotos([])
+            setSelectedPhotos([])
+            setMode('OFF')
+            setIsCapturing(false)
+            setCountdown(0)
+        } catch (error) {
+            console.error('Error resetting photos:', error)
         }
     }
 
@@ -179,13 +222,10 @@ function App() {
     }
 
     const takeNew = () => {
+        resetPhotos()
         setAppState('capturing')
-        setPhotos([])
-        setSelectedPhotos([])
         setFinalResult(null)
         setAppliedFilter(null)
-        setIsCapturing(false)
-        setCountdown(0)
     }
 
     const renderCapturing = () => (
@@ -196,21 +236,25 @@ function App() {
             <div className="relative z-10 container mx-auto px-4 py-8">
                 <div className="text-center mb-8">
                     <h1 className="text-4xl font-bold text-slate-800 mb-2">Photobooth with AI</h1>
-                    <p className="text-slate-600">Capture your perfect moments</p>
+                    <p className="text-slate-600">Hand gesture control - 👊 Zoom Out | ✋ Zoom In | 👌 OK Sign to Capture</p>
                 </div>
 
                 <div className="flex gap-8 max-w-7xl mx-auto">
                     {/* Camera Section */}
                     <div className="flex-1">
                         <div className="relative bg-white rounded-2xl shadow-2xl overflow-hidden" style={{ aspectRatio: '7/5' }}>
-                            <video
-                                ref={videoRef}
-                                autoPlay
-                                playsInline
-                                muted
-                                className="w-full h-full object-cover"
-                            />
-                            <canvas ref={canvasRef} className="hidden" />
+                            {/* AI Camera Stream */}
+                            {wsData?.frame ? (
+                                <img
+                                    src={wsData.frame}
+                                    alt="AI Camera Stream"
+                                    className="w-full h-full object-cover"
+                                />
+                            ) : (
+                                <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                                    <div className="text-gray-500 text-lg">Connecting to AI Camera...</div>
+                                </div>
+                            )}
 
                             {/* Countdown Overlay */}
                             {countdown > 0 && (
@@ -221,16 +265,30 @@ function App() {
                                 </div>
                             )}
 
+                            {/* Status Overlay */}
+                            <div className="absolute top-4 left-4 bg-black bg-opacity-70 text-white px-4 py-2 rounded-lg">
+                                <div className="text-sm">
+                                    <div>Mode: <span className={`font-bold ${mode === 'ON' ? 'text-green-400' : 'text-red-400'}`}>{mode}</span></div>
+                                    <div>Zoom: <span className="font-bold text-blue-400">{zoomLevel}x</span></div>
+                                    <div>Gesture: <span className="font-bold text-yellow-400">{currentGesture}</span></div>
+                                </div>
+                            </div>
+
                             {/* Camera Frame */}
                             <div className="absolute inset-0 border-4 border-blue-600 rounded-2xl pointer-events-none"></div>
                         </div>
 
+                        {/* Mode Toggle Button */}
                         <button
-                            onClick={startCapturing}
-                            disabled={isCapturing || photos.length >= 6}
-                            className="w-full mt-6 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-4 px-8 rounded-xl text-xl transition-colors duration-200"
+                            onClick={toggleMode}
+                            disabled={photos.length >= 6 || isToggling}
+                            className={`w-full mt-6 font-bold py-4 px-8 rounded-xl text-xl transition-colors duration-200 ${mode === 'ON'
+                                ? 'bg-green-600 hover:bg-green-700 text-white'
+                                : 'bg-red-600 hover:bg-red-700 text-white'
+                                } ${(photos.length >= 6 || isToggling) ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
-                            {photos.length >= 6 ? 'Maximum Photos Reached' : 'Start Capturing'}
+                            {photos.length >= 6 ? 'Maximum Photos Reached' :
+                                isToggling ? 'Switching...' : `MODE: ${mode}`}
                         </button>
                     </div>
 
